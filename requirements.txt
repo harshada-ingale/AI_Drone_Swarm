@@ -1,0 +1,10 @@
+numpy
+opencv-python
+pandas
+networkx
+scikit-learn
+matplotlib
+streamlit
+pytest
+onnxruntime
+cryptography
