@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+from typing import Any
 import cv2
 import numpy as np
 
@@ -62,6 +63,17 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=3,
         help="Minimum track hits before confirmation.",
+    )
+    parser.add_argument(
+        "--min-alert-interval",
+        type=float,
+        default=3.0,
+        help="Minimum seconds between alerts (0 disables).",
+    )
+    parser.add_argument(
+        "--log-csv",
+        default=None,
+        help="Path to log tracks CSV file.",
     )
     parser.add_argument(
         "--show",
@@ -171,6 +183,8 @@ def main() -> None:
         process_every=args.every,
         on_alert=handle_alert,
         on_frame=handle_frame,
+        min_alert_interval_s=args.min_alert_interval,
+        log_csv=args.log_csv,
     )
     node_ref.append(node)
 
