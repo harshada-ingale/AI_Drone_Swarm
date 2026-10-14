@@ -15,6 +15,7 @@ from vision.disaster_detection import (
     DisasterAnalyzer,
 )
 from vision.emergency_alert import AlertManager, EmergencyAlert
+from vision.evidence import build_evidence
 from vision.telemetry import StaticTelemetry, Telemetry
 from vision.thermal import thermal_confirms
 from vision.tracker import SimpleTracker, Track
@@ -45,6 +46,10 @@ class OnboardVisionNode:
         min_alert_interval_s: float = 3.0,
         reset_after_s: float = 10.0,
         log_csv: str | None = None,
+        include_thumbnails: bool = True,
+        max_evidence: int = 5,
+        thumb_size: int = 128,
+        review_below: float = 0.50,
     ) -> None:
         self.detector = detector
         self.camera = camera
@@ -52,7 +57,13 @@ class OnboardVisionNode:
         self.telemetry = telemetry or StaticTelemetry()
         self.thermal_camera = thermal_camera
         self.tracker = tracker or SimpleTracker()
-        self.alert_manager = alert_manager or AlertManager(cooldown_s=0.0)
+        self.include_thumbnails = include_thumbnails
+        self.max_evidence = int(max_evidence)
+        self.thumb_size = int(thumb_size)
+        self.review_below = float(review_below)
+        self.alert_manager = alert_manager or AlertManager(
+            cooldown_s=0.0, save=False, review_below=self.review_below
+        )
         self.process_every = max(1, int(process_every))
         self.on_alert = on_alert
         self.on_frame = on_frame
@@ -198,7 +209,15 @@ class OnboardVisionNode:
                 interval_ok = (curr_time - self.last_alert_time) >= self.min_alert_interval_s
 
             if escalated and interval_ok:
-                alert = self.alert_manager.create(report)
+                ev_frame = frame if self.include_thumbnails else None
+                evidence = build_evidence(
+                    frame=ev_frame,
+                    tracks=people,
+                    person_labels=PERSON_CLASSES,
+                    max_items=self.max_evidence,
+                    out_size=self.thumb_size,
+                )
+                alert = self.alert_manager.create(report, evidence=evidence)
                 if alert is not None:
                     self.highest_alerted_people = max(self.highest_alerted_people, num_visible_people)
                     self.last_alert_priority = report.priority

@@ -85,6 +85,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Force threaded real-time frame dropping capture.",
     )
+    parser.add_argument(
+        "--no-thumbnails",
+        action="store_true",
+        help="Disable cropping and attaching thumbnails to alert evidence.",
+    )
+    parser.add_argument(
+        "--max-thumbs",
+        type=int,
+        default=5,
+        help="Maximum number of evidence thumbnails per alert.",
+    )
+    parser.add_argument(
+        "--review-below",
+        type=float,
+        default=0.5,
+        help="Confidence threshold below which alert is marked for review.",
+    )
     return parser.parse_args()
 
 
@@ -127,7 +144,7 @@ def main() -> None:
 
     telemetry = StaticTelemetry(altitude_m=args.altitude, hfov_deg=args.hfov)
     tracker = SimpleTracker(min_hits=args.min_hits)
-    alert_mgr = AlertManager(cooldown_s=0.0)
+    alert_mgr = AlertManager(cooldown_s=0.0, review_below=args.review_below)
 
     def handle_alert(alert: EmergencyAlert) -> None:
         print(alert.summary())
@@ -185,6 +202,9 @@ def main() -> None:
         on_frame=handle_frame,
         min_alert_interval_s=args.min_alert_interval,
         log_csv=args.log_csv,
+        include_thumbnails=not args.no_thumbnails,
+        max_evidence=args.max_thumbs,
+        review_below=args.review_below,
     )
     node_ref.append(node)
 
