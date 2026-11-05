@@ -46,7 +46,13 @@ class Camera:
         Raises:
             RuntimeError: If the source cannot be opened.
         """
-        self.cap = cv2.VideoCapture(self.source)
+        if isinstance(self.source, int):
+            self.cap = cv2.VideoCapture(self.source, cv2.CAP_DSHOW)
+            if not self.cap.isOpened():
+                self.cap = cv2.VideoCapture(self.source)
+        else:
+            self.cap = cv2.VideoCapture(self.source)
+
         if not self.cap.isOpened():
             raise RuntimeError(f"Cannot open video source: {self.source}")
 
@@ -110,6 +116,20 @@ class Camera:
         self._seq += 1
         self._frame = frame
         return (frame, self._seq)
+
+    def get_timestamp(self) -> float | None:
+        """Returns video timestamp in seconds if available from capture source."""
+        if self.cap is not None:
+            try:
+                pos_msec = self.cap.get(cv2.CAP_PROP_POS_MSEC)
+                if pos_msec > 0.0:
+                    return pos_msec / 1000.0
+                fps = self.cap.get(cv2.CAP_PROP_FPS)
+                if fps > 0.0 and self._seq > 0:
+                    return (self._seq - 1) / fps
+            except Exception:
+                pass
+        return None
 
     def stop(self) -> None:
         """Stops capture thread and releases video resources."""

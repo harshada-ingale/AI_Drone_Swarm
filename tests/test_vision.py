@@ -58,11 +58,12 @@ def test_letterbox_and_coordinate_unmapping_1280x720() -> None:
 
 def test_class_aware_nms_removes_duplicate_person_keeps_car() -> None:
     """NMS removes duplicate person detection but keeps car at the same position."""
-    num_classes = len(COCO_CLASSES)
+    multi_classes = ["person", "car"]
+    num_classes = len(multi_classes)
     # 3 predictions:
     # 0: person at [150, 240, 100, 100] with conf=0.90
     # 1: person at [152, 241, 98, 102] with conf=0.80 (duplicate box with high IoU)
-    # 2: car at [150, 240, 100, 100] with conf=0.85 (different class: car is class 2)
+    # 2: car at [150, 240, 100, 100] with conf=0.85 (different class: car is class 1)
     synthetic_pred = np.zeros((1, 4 + num_classes, 3), dtype=np.float32)
 
     synthetic_pred[0, :4, 0] = [150.0, 240.0, 100.0, 100.0]
@@ -72,7 +73,40 @@ def test_class_aware_nms_removes_duplicate_person_keeps_car() -> None:
     synthetic_pred[0, 4, 1] = 0.80  # duplicate person
 
     synthetic_pred[0, :4, 2] = [150.0, 240.0, 100.0, 100.0]
-    synthetic_pred[0, 6, 2] = 0.85  # class 2 (index 4 + 2 = 6): "car"
+    synthetic_pred[0, 5, 2] = 0.85  # class 1 (index 4 + 1 = 5): "car"
+
+    dets = decode_yolov8(
+        output=synthetic_pred,
+        conf_thresh=0.35,
+        iou_thresh=0.45,
+        orig_hw=(720, 1280),
+        input_hw=(640, 640),
+        scale=0.5,
+        pad=(0.0, 140.0),
+        class_names=multi_classes,
+    )
+
+    assert len(dets) == 2
+    labels = {d.label for d in dets}
+    assert labels == {"person", "car"}
+    # Verify higher confidence person was kept
+    person_det = next(d for d in dets if d.label == "person")
+    assert person_det.confidence == pytest.approx(0.90)
+
+
+def test_single_class_victim_person_detection() -> None:
+    """Verifies single-class victim person model decoding with COCO_CLASSES."""
+    assert COCO_CLASSES == ["person"]
+    num_classes = len(COCO_CLASSES)
+    synthetic_pred = np.zeros((1, 4 + num_classes, 2), dtype=np.float32)
+
+    # Box 1: high confidence person
+    synthetic_pred[0, :4, 0] = [150.0, 240.0, 100.0, 100.0]
+    synthetic_pred[0, 4, 0] = 0.95
+
+    # Box 2: duplicate person with lower confidence (IoU ~ 1.0)
+    synthetic_pred[0, :4, 1] = [151.0, 241.0, 100.0, 100.0]
+    synthetic_pred[0, 4, 1] = 0.75
 
     dets = decode_yolov8(
         output=synthetic_pred,
@@ -85,12 +119,9 @@ def test_class_aware_nms_removes_duplicate_person_keeps_car() -> None:
         class_names=COCO_CLASSES,
     )
 
-    assert len(dets) == 2
-    labels = {d.label for d in dets}
-    assert labels == {"person", "car"}
-    # Verify higher confidence person was kept
-    person_det = next(d for d in dets if d.label == "person")
-    assert person_det.confidence == pytest.approx(0.90)
+    assert len(dets) == 1
+    assert dets[0].label == "person"
+    assert dets[0].confidence == pytest.approx(0.95)
 
 
 def test_low_confidence_boxes_are_filtered() -> None:

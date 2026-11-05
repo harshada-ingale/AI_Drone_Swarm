@@ -43,9 +43,16 @@ class YoloDetector:
     Never import them at the top-level of any module.
     """
 
-    def __init__(self, model_path: str, conf: float = 0.35, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        conf: float = 0.35,
+        classes: list[int] | None = None,
+        **kwargs: Any,
+    ) -> None:
         self.model_path = model_path
         self.conf = conf
+        self.classes = classes
         self.kwargs = kwargs
         try:
             # Lazy import to avoid application control policy violations at module load
@@ -62,8 +69,12 @@ class YoloDetector:
         if frame is None or frame.size == 0:
             return []
 
+        predict_kwargs = dict(self.kwargs)
+        if self.classes is not None and "classes" not in predict_kwargs:
+            predict_kwargs["classes"] = self.classes
+
         results = self.model.predict(
-            frame, conf=self.conf, verbose=False, **self.kwargs
+            frame, conf=self.conf, verbose=False, **predict_kwargs
         )
         detections: list[Detection] = []
 

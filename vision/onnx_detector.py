@@ -11,18 +11,7 @@ import numpy as np
 from vision.yolo_detector import Detection
 
 COCO_CLASSES = [
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
-    "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench",
-    "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra",
-    "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove",
-    "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup",
-    "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
-    "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse",
-    "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
-    "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
-    "toothbrush",
+    "person",
 ]
 
 
@@ -77,7 +66,7 @@ def decode_yolov8(
         return []
 
     # Expected output: (1, 4 + num_classes, N) or (1, N, 4 + num_classes)
-    expected_channels = 4 + len(class_names) if class_names else 84
+    expected_channels = 4 + len(class_names) if class_names else (4 + len(COCO_CLASSES))
     if output.ndim == 3:
         if output.shape[1] == expected_channels:
             preds = np.transpose(output[0], (1, 0))  # (N, 4 + num_classes)
