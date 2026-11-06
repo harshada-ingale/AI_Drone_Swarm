@@ -185,3 +185,21 @@ ctrl.update_drone_health({"drone_id": "D4", "battery": 10.0})
 print(ctrl.get_swarm_status())
 ```
 
+---
+
+## 9. Interactive Demonstration Script
+
+An interactive demonstration script is available in `run_self_healing_demo.py` showcasing all six operational phases (Monitor, Detect, Isolate, Dynamic Dijkstra Rerouting, Verification & Recovery, Security Clearance Enforcement):
+
+```bash
+# Standard paced demonstration
+python run_self_healing_demo.py
+
+# Interactive step-by-step mode (press Enter to advance)
+python run_self_healing_demo.py --interactive
+
+# Fast automated mode
+python run_self_healing_demo.py --fast
+```
+
+

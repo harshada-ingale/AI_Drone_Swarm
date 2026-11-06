@@ -330,7 +330,7 @@ def test_11_compromised_drone_not_automatically_reintroduced(
     assert st.operational_status == DroneHealthStatus.ISOLATED
 
     # Explicit security clearance granted
-    ctrl.grant_security_clearance("D4", clearance_token="ADMIN_CLEAR_TOKEN_01")
+    ctrl.grant_security_clearance("D4", clearance_token="DEMO-OPERATOR-CLEARANCE-REF")
     assert st.security_cleared is True
     assert st.is_compromised is False
 

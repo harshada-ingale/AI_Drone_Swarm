@@ -143,22 +143,32 @@ class SelfHealingController:
 
         state = self._drones[drone_id]
 
-        # Update telemetry fields
-        if "position" in parsed:
+        # Update telemetry fields (preserve existing state on partial dictionary updates)
+        if isinstance(update, dict):
+            if "position" in update:
+                state.position = parsed["position"]
+            if "altitude" in update:
+                state.altitude = float(parsed["altitude"])
+            if "heading" in update:
+                state.heading = float(parsed["heading"])
+            if "battery" in update:
+                state.battery = float(parsed["battery"])
+            if "signal_strength" in update:
+                state.signal_strength = float(parsed["signal_strength"])
+            if "packet_loss" in update:
+                state.packet_loss = float(parsed["packet_loss"])
+            if "latency" in update:
+                state.latency = float(parsed["latency"])
+            if "threat_level" in update:
+                state.threat_level = float(parsed["threat_level"])
+        else:
             state.position = parsed["position"]
-        if "altitude" in parsed:
             state.altitude = float(parsed["altitude"])
-        if "heading" in parsed:
             state.heading = float(parsed["heading"])
-        if "battery" in parsed:
             state.battery = float(parsed["battery"])
-        if "signal_strength" in parsed:
             state.signal_strength = float(parsed["signal_strength"])
-        if "packet_loss" in parsed:
             state.packet_loss = float(parsed["packet_loss"])
-        if "latency" in parsed:
             state.latency = float(parsed["latency"])
-        if "threat_level" in parsed:
             state.threat_level = float(parsed["threat_level"])
 
         state.last_seen = now
