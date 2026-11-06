@@ -730,3 +730,75 @@ def test_drone_state_serialization_round_trip() -> None:
     assert restored.failure_reasons == [FailureReason.WEAK_SIGNAL]
     assert restored.previous_status == DroneHealthStatus.HEALTHY
 
+
+def test_regression_isolating_failed_relay_does_not_exclude_healthy_source(
+    linear_swarm_controller: SelfHealingController,
+) -> None:
+    """Regression test: isolating failed relay D4 must not add healthy source D7 to the excluded set."""
+    ctrl = linear_swarm_controller
+    now = time.time()
+
+    # D7 is source; establish active route D7 -> D4 -> D3 -> GS
+    route = ctrl.register_active_route("alert-stream", "D7", "GS")
+    assert route == ["D7", "D4", "D3", "GS"]
+
+    # Healthy drones emit keepalive heartbeats at current time
+    ctrl.heartbeat_active_drones(current_time=now)
+
+    # Relay D4 specifically goes silent and exceeds heartbeat timeout
+    st_d4 = ctrl.get_drone_state("D4")
+    assert st_d4 is not None
+    st_d4.last_seen = now - 10.0
+
+    # Heartbeat check isolates D4 after consecutive_failures_to_isolate checks
+    for _ in range(ctrl.config.consecutive_failures_to_isolate):
+        ctrl.check_heartbeats(current_time=now)
+
+    # Verify D4 is isolated, but source D7 and destination GS are NOT excluded
+    excluded = ctrl.get_isolated_and_failed_drones()
+    assert "D4" in excluded
+    assert "D7" not in excluded
+    assert "GS" not in excluded
+
+    st_d7 = ctrl.get_drone_state("D7")
+    assert st_d7 is not None
+    assert st_d7.operational_status == DroneHealthStatus.HEALTHY
+
+    # Verify alternative route D7 -> D5 -> D6 -> GS remains available
+    alt_route = ctrl.get_route("D7", "GS")
+    assert alt_route is not None
+    assert "D4" not in alt_route
+    assert alt_route in (["D7", "D5", "D6", "GS"], ["D7", "D5", "D3", "GS"])
+
+    # Verify alert dispatch from D7 succeeds
+    alert = EmergencyAlert(
+        alert_id="ALERT-REGRESSION-01",
+        drone_id="D7",
+        timestamp=now,
+        priority="HIGH",
+        persons=1,
+        hazards={},
+        location=(0.0, 0.0),
+    )
+    res = ctrl.dispatch_emergency_alert(alert, origin_drone_id="D7")
+    assert res["success"] is True
+    assert "D4" not in res["route"]
+
+
+def test_ground_station_never_isolated_by_heartbeat_timeout(fast_config: SelfHealingConfig) -> None:
+    """Ground Station is infrastructure and must never be isolated by drone flight heartbeat checks."""
+    ctrl = SelfHealingController(config=fast_config)
+    ctrl.register_drone("D1", DroneState(drone_id="D1"))
+    ctrl.register_drone("GS", DroneState(drone_id="GS"))
+
+    now = time.time()
+    # Simulate significant time passing with no GS heartbeats
+    for _ in range(5):
+        ctrl.check_heartbeats(current_time=now + 20.0)
+
+    st_gs = ctrl.get_drone_state("GS")
+    assert st_gs is not None
+    assert st_gs.operational_status == DroneHealthStatus.HEALTHY
+    assert "GS" not in ctrl.get_isolated_and_failed_drones()
+
+

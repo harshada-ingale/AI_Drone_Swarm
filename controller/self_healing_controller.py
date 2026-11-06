@@ -277,6 +277,21 @@ class SelfHealingController:
 
         return result
 
+    def heartbeat(self, drone_id: str, current_time: float | None = None) -> None:
+        """Records keepalive heartbeat timestamp for a drone without requiring full telemetry."""
+        now = time.time() if current_time is None else current_time
+        if drone_id in self._drones:
+            self._drones[drone_id].last_seen = now
+            self._drones[drone_id].consecutive_failures = 0
+
+    def heartbeat_active_drones(self, current_time: float | None = None) -> None:
+        """Records keepalive heartbeat for all healthy non-isolated drones in the swarm."""
+        now = time.time() if current_time is None else current_time
+        for d_id, st in self._drones.items():
+            if d_id != self.config.ground_station_id and st.operational_status == DroneHealthStatus.HEALTHY:
+                st.last_seen = now
+                st.consecutive_failures = 0
+
     def check_heartbeats(self, current_time: float | None = None) -> list[str]:
         """Scans all registered drones for heartbeat timeouts.
 
@@ -286,6 +301,10 @@ class SelfHealingController:
         isolated_ids: list[str] = []
 
         for drone_id, state in list(self._drones.items()):
+            # Ground Station is command infrastructure, not an aerial drone subject to flight heartbeats
+            if drone_id == self.config.ground_station_id:
+                continue
+
             if state.operational_status in (DroneHealthStatus.ISOLATED, DroneHealthStatus.FAILED):
                 continue
 
@@ -303,6 +322,9 @@ class SelfHealingController:
                         current_time=now,
                     )
                     isolated_ids.append(drone_id)
+            else:
+                # Reset failure counter on healthy heartbeat interval
+                state.consecutive_failures = 0
 
         return isolated_ids
 

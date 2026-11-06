@@ -209,6 +209,9 @@ def run_demo(step_delay: float = 0.5, interactive: bool = False) -> None:
     print(f"Simulating sudden complete radio/hardware failure on intermediate relay {BOLD}D4{RESET}...\n")
 
     sim_time = time.time()
+    # Active healthy drones continue streaming their normal flight keepalive heartbeats
+    ctrl.heartbeat_active_drones(current_time=sim_time)
+
     st_d4 = ctrl.get_drone_state("D4")
     assert st_d4 is not None
 
@@ -242,6 +245,7 @@ def run_demo(step_delay: float = 0.5, interactive: bool = False) -> None:
     print("The controller automatically detects that active route 'surveillance-stream-01' traverses isolated node D4.")
     print("Initiating dynamic graph recalculation...\n")
 
+    ctrl.heartbeat_active_drones(current_time=time.time())
     updated_route = ctrl.get_active_route(route_id)
     assert updated_route is not None
 
@@ -277,6 +281,7 @@ def run_demo(step_delay: float = 0.5, interactive: bool = False) -> None:
     print("Initiating multi-check recovery verification...\n")
 
     rec_time = time.time()
+    ctrl.heartbeat_active_drones(current_time=rec_time)
 
     # Step 1: 1st healthy check -> transitions to RECOVERING
     print(f"Step 4.1: First healthy telemetry frame received from D4...")
@@ -329,6 +334,7 @@ def run_demo(step_delay: float = 0.5, interactive: bool = False) -> None:
     print(f"Simulating AI threat detection: Drone {BOLD}D6{RESET} exhibits anomalous behavior (GPS spoofing)...\n")
 
     threat_time = time.time()
+    ctrl.heartbeat_active_drones(current_time=threat_time)
     ctrl.report_threat(
         ThreatReport(
             drone_id="D6",
@@ -393,6 +399,7 @@ def run_demo(step_delay: float = 0.5, interactive: bool = False) -> None:
     # PHASE 6: FINAL SWARM STATUS & AUDIT SUMMARY
     # ==========================================================================
     print_banner("PHASE 6: MISSION SUMMARY & AUDIT TRAIL")
+    ctrl.heartbeat_active_drones(current_time=time.time())
     summary = ctrl.get_swarm_status()
 
     print(f"{BOLD}Swarm Telemetry Overview:{RESET}")
