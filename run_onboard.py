@@ -10,7 +10,10 @@ import numpy as np
 from vision.camera import Camera
 from vision.detector_factory import load_detector
 from vision.emergency_alert import AlertManager, EmergencyAlert
+from vision.geolocate import CameraModel, ErrorModel
+from vision.mavlink_telemetry import MavlinkTelemetry
 from vision.onboard_vision import OnboardVisionNode
+from vision.pose_providers import SimPoseProvider, StaticPoseProvider
 from vision.telemetry import StaticTelemetry
 from vision.tracker import SimpleTracker, Track
 
@@ -102,6 +105,65 @@ def parse_args() -> argparse.Namespace:
         default=0.5,
         help="Confidence threshold below which alert is marked for review.",
     )
+
+    # Real-world geolocation and pose flags
+    parser.add_argument(
+        "--mavlink",
+        default=None,
+        help="MAVLink connection string (e.g. udp:127.0.0.1:14550 or COM3).",
+    )
+    parser.add_argument(
+        "--camera-hfov",
+        type=float,
+        default=84.0,
+        help="Camera horizontal field of view in degrees (default 84).",
+    )
+    parser.add_argument(
+        "--gimbal-pitch",
+        type=float,
+        default=-90.0,
+        help="Fixed or default camera gimbal pitch in degrees (default -90).",
+    )
+    parser.add_argument(
+        "--camera-latency-ms",
+        type=float,
+        default=200.0,
+        help="Camera frame capture to telemetry latency in ms (default 200).",
+    )
+    parser.add_argument(
+        "--ground-elevation-msl",
+        type=float,
+        default=None,
+        help="Ground elevation above MSL in metres.",
+    )
+    parser.add_argument(
+        "--gps-sigma",
+        type=float,
+        default=3.0,
+        help="Expected 1-sigma GPS horizontal uncertainty in metres (default 3).",
+    )
+    parser.add_argument(
+        "--origin-lat",
+        type=float,
+        default=None,
+        help="Origin latitude for local ENU coordinates.",
+    )
+    parser.add_argument(
+        "--origin-lon",
+        type=float,
+        default=None,
+        help="Origin longitude for local ENU coordinates.",
+    )
+    parser.add_argument(
+        "--origin-name",
+        default="home",
+        help="Origin location name ('home', 'ground_station', etc.).",
+    )
+    parser.add_argument(
+        "--sim-pose",
+        default=None,
+        help="Fixed desk test pose in format 'LAT,LON,ALT_AGL,YAW'.",
+    )
     return parser.parse_args()
 
 
@@ -142,9 +204,50 @@ def main() -> None:
         print(f"Initializing thermal camera '{args.thermal_source}'...")
         thermal_camera = Camera(source=args.thermal_source, threaded=thermal_threaded)
 
-    telemetry = StaticTelemetry(altitude_m=args.altitude, hfov_deg=args.hfov)
+    hfov = args.camera_hfov if args.camera_hfov is not None else args.hfov
+    telemetry = StaticTelemetry(altitude_m=args.altitude, hfov_deg=hfov)
     tracker = SimpleTracker(min_hits=args.min_hits)
     alert_mgr = AlertManager(cooldown_s=0.0, review_below=args.review_below)
+
+    # Pose provider configuration
+    pose_provider = None
+    mavlink_telem = None
+    error_model = ErrorModel(gps_sigma_m=args.gps_sigma)
+
+    origin = None
+    if args.origin_lat is not None and args.origin_lon is not None:
+        origin = {
+            "lat": args.origin_lat,
+            "lon": args.origin_lon,
+            "name": args.origin_name,
+        }
+
+    if args.sim_pose:
+        parts = [float(v.strip()) for v in args.sim_pose.split(",")]
+        if len(parts) >= 4:
+            plat, plon, palt, pyaw = parts[:4]
+            pose_provider = StaticPoseProvider(
+                lat=plat,
+                lon=plon,
+                alt_agl_m=palt,
+                yaw_deg=pyaw,
+                gimbal_pitch_deg=args.gimbal_pitch,
+            )
+            print(f"Configured StaticPoseProvider: lat={plat}, lon={plon}, alt={palt}m, yaw={pyaw}deg")
+    elif args.mavlink:
+        alt_src = (
+            "relative" if args.ground_elevation_msl is None else "msl_minus_ground"
+        )
+        mavlink_telem = MavlinkTelemetry(
+            connection=args.mavlink,
+            camera_latency_s=args.camera_latency_ms / 1000.0,
+            gimbal_pitch_deg=args.gimbal_pitch,
+            alt_source=alt_src,
+            ground_elevation_msl_m=args.ground_elevation_msl,
+        )
+        mavlink_telem.start()
+        pose_provider = mavlink_telem
+        print(f"Connected MAVLink telemetry on: {args.mavlink} (latency={args.camera_latency_ms}ms)")
 
     def handle_alert(alert: EmergencyAlert) -> None:
         print(alert.summary())
@@ -156,7 +259,6 @@ def main() -> None:
             return
 
         disp = frame.copy()
-        # Top banner
         header = f"People: {report.persons} | Priority: {report.priority} | Drone: {report.drone_id}"
         color_map = {
             "CRITICAL": (0, 0, 255),
@@ -168,7 +270,6 @@ def main() -> None:
         cv2.rectangle(disp, (0, 0), (disp.shape[1], 36), (30, 30, 30), -1)
         cv2.putText(disp, header, (12, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, accent, 2)
 
-        # Draw confirmed visible tracks
         for trk in tracks:
             if tracker.is_confirmed(trk) and trk.missed == 0:
                 x1, y1, x2, y2 = [int(round(v)) for v in trk.bbox]
@@ -205,6 +306,10 @@ def main() -> None:
         include_thumbnails=not args.no_thumbnails,
         max_evidence=args.max_thumbs,
         review_below=args.review_below,
+        pose_provider=pose_provider,
+        error_model=error_model,
+        origin=origin,
+        camera_hfov=hfov,
     )
     node_ref.append(node)
 
@@ -217,6 +322,8 @@ def main() -> None:
         print("\nShutdown requested by user (KeyboardInterrupt).")
     finally:
         node.stop()
+        if mavlink_telem is not None:
+            mavlink_telem.stop()
         if args.show:
             cv2.destroyAllWindows()
         print("\n--- Mission Summary ---")
