@@ -2,6 +2,7 @@
 
 import base64
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -22,12 +23,19 @@ class EmergencyAlert:
     timestamp: float
     priority: str
     persons: int
-    hazards: dict[str, int]
-    location: tuple[float, float]
+    hazards: dict[str, int] | None = None
+    # Deprecated: use location_gps and location_local instead
+    location: tuple[float, float] = (0.0, 0.0)
     evidence: list[dict[str, Any]] = field(default_factory=list)
     min_confidence: float | None = None
     mean_confidence: float | None = None
     needs_review: bool = False
+    location_gps: list[dict[str, Any]] = field(default_factory=list)
+    location_local: list[dict[str, Any]] = field(default_factory=list)
+    drone: dict[str, Any] | None = None
+    reference_frame: dict[str, Any] | None = None
+    utc_time: str | None = None
+    hazards_supported: bool = False
 
     def to_json(self) -> str:
         """Serializes alert to JSON string."""
@@ -36,12 +44,44 @@ class EmergencyAlert:
 
     def summary(self) -> str:
         """Returns human-readable one-line broadcast summary."""
-        x, y = self.location
-        loc_str = f"X={int(round(x))}, Y={int(round(y))}"
+        if self.location_gps:
+            valid_persons = [
+                p
+                for p in self.location_gps
+                if p.get("lat") is not None and p.get("lon") is not None
+            ]
+            if valid_persons:
+                p_strs = []
+                for p in valid_persons[:3]:
+                    tid = p.get("track_id", "")
+                    lat = float(p["lat"])
+                    lon = float(p["lon"])
+                    lat_dir = "N" if lat >= 0 else "S"
+                    lon_dir = "E" if lon >= 0 else "W"
+                    unc = p.get("uncertainty_m")
+                    unc_str = f" +/-{int(round(unc))} m" if unc is not None else ""
+                    p_strs.append(
+                        f"P{tid} {abs(lat):.5f}{lat_dir} {abs(lon):.5f}{lon_dir}{unc_str}"
+                    )
+                loc_segment = " ; ".join(p_strs)
+                if len(self.location_gps) > 3:
+                    loc_segment += f" ; +{len(self.location_gps) - 3} more"
+            else:
+                first_status = (
+                    self.location_gps[0].get("location_status", "no_pose")
+                    if self.location_gps
+                    else "no_pose"
+                )
+                loc_segment = f"Loc: unknown ({first_status})"
+        else:
+            x, y = self.location
+            loc_segment = f"Location: X={int(round(x))}, Y={int(round(y))}"
+
         base = (
             f"ALERT | Drone: {self.drone_id} | People: {self.persons} | "
-            f"Location: {loc_str} | Priority: {self.priority}"
+            f"{loc_segment} | Priority: {self.priority}"
         )
+
         conf_part = ""
         confs = [
             e["confidence"]
@@ -69,7 +109,7 @@ class EmergencyAlert:
 
         If payload size exceeds max_bytes, drops thumbnails one-by-one
         (most confident detections first) until within size limit.
-        Never drops confidences or bounding boxes.
+        Never drops positions, uncertainties, or drone telemetry blocks.
         """
         payload = asdict(self)
         payload["thumbnails_dropped"] = 0
@@ -123,6 +163,12 @@ class AlertManager:
         self,
         report: DetectionReport,
         evidence: list[EvidenceItem] | None = None,
+        location_gps: list[dict[str, Any]] | None = None,
+        location_local: list[dict[str, Any]] | None = None,
+        drone: dict[str, Any] | None = None,
+        reference_frame: dict[str, Any] | None = None,
+        utc_time: str | None = None,
+        hazards_supported: bool = False,
     ) -> EmergencyAlert | None:
         """Creates and persists an EmergencyAlert if conditions are met.
 
@@ -194,18 +240,41 @@ class AlertManager:
                 mean_conf = round(float(sum(confs) / len(confs)), 3)
                 needs_review = any(c < self.review_below for c in confs)
 
+        # Honest hazards handling:
+        # If no hazard model loaded, output null and hazards_supported=False
+        rep_hazards = getattr(report, "hazards", None)
+        rep_hz_supp = getattr(report, "hazards_supported", hazards_supported)
+        if rep_hazards and any(v > 0 for v in rep_hazards.values()):
+            actual_hazards = rep_hazards
+            actual_supported = True
+        elif rep_hz_supp and rep_hazards:
+            actual_hazards = rep_hazards
+            actual_supported = True
+        else:
+            actual_hazards = None
+            actual_supported = False
+
+        if utc_time is None:
+            utc_time = datetime.now(timezone.utc).isoformat()
+
         alert = EmergencyAlert(
             alert_id=alert_id,
             drone_id=report.drone_id,
             timestamp=now,
             priority=report.priority,
             persons=report.persons,
-            hazards=report.hazards,
+            hazards=actual_hazards,
             location=loc,
             evidence=evidence_dicts,
             min_confidence=min_conf,
             mean_confidence=mean_conf,
             needs_review=needs_review,
+            location_gps=location_gps or [],
+            location_local=location_local or [],
+            drone=drone,
+            reference_frame=reference_frame,
+            utc_time=utc_time,
+            hazards_supported=actual_supported,
         )
 
         if self.save:
