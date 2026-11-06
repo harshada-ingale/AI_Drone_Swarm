@@ -37,3 +37,4 @@ __all__ = [
     "SecurityAdapter",
     "VisionAlertAdapter",
 ]
+

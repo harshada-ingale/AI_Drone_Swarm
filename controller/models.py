@@ -159,3 +159,4 @@ class ThreatReport:
     threat_type: str = "ANOMALY"      # e.g., 'GPS_SPOOFING', 'COMPROMISED_TELEMETRY', 'UNAUTHORIZED_TRAFFIC'
     timestamp: float = field(default_factory=time.time)
     details: dict[str, Any] = field(default_factory=dict)
+

@@ -216,3 +216,4 @@ class VisionAlertAdapter:
             "hops_traversed": hops_traversed,
             "delivered_payload": delivered_payload,
         }
+

@@ -52,3 +52,4 @@ class RoutingInterface(ABC):
             RouteResult containing success flag, ordered path list, and metrics.
         """
         raise NotImplementedError
+

@@ -162,3 +162,4 @@ class FailureDetector:
 
         is_eligible = len(rejection_reasons) == 0
         return is_eligible, rejection_reasons
+

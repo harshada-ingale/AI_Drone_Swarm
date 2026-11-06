@@ -58,3 +58,4 @@ class SelfHealingConfig:
             # Allows standard D<number> or GS or any alphanumeric ID if strict mode is disabled
             return bool(re.match(r"^[A-Za-z0-9_\-]+$", drone_id))
         return bool(re.match(self.drone_id_pattern, drone_id))
+

@@ -210,3 +210,4 @@ class DijkstraRouter(RoutingInterface):
             hop_count=0,
             error_message=f"No communication path found between '{source}' and '{destination}'.",
         )
+

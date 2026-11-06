@@ -667,3 +667,4 @@ class SelfHealingController:
             ],
             "total_events": len(self._events),
         }
+
