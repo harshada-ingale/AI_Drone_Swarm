@@ -137,6 +137,7 @@ class RecoveryManager:
             state.consecutive_failures = 0
             state.consecutive_healthy = 0
             state.isolation_timestamp = None
+            state.recovery_timestamp = now
 
             if state.drone_id in self._history and self._history[state.drone_id]:
                 rec = self._history[state.drone_id][-1]
