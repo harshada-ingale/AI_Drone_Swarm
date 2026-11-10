@@ -10,7 +10,21 @@ Collaborative AI-enabled autonomous drone swarm system for disaster detection, s
 - **`security/`**: Cryptographic messaging and post-quantum security framework.
 - **`simulator/`**: Multi-drone telemetry and network link simulation.
 - **`ai/`**: Swarm intelligence and threat anomaly detection.
-- **`dashboard/`**: Real-time swarm monitoring and command dashboard.
+- **`dashboard/`**: Real-time swarm monitoring and command dashboard (Streamlit).
+
+## Command Center Dashboard
+
+Launch the interactive tactical dashboard to monitor swarm telemetry, inspect dynamic rerouting, simulate network attacks (jamming, DoS, spoofing), issue cryptographic security clearances, and view emergency disaster alerts with per-person geolocation:
+
+```powershell
+# Using the PowerShell launcher
+.\run_dashboard.ps1
+
+# Or directly with Python
+.\venv\Scripts\python.exe -m streamlit run dashboard/app.py --server.port 8501
+```
+
+Full architecture, panel breakdown, and operations guide are documented in [docs/DASHBOARD.md](docs/DASHBOARD.md).
 
 ## Self-Healing Documentation
 
