@@ -242,6 +242,8 @@ def render_network_map_matplotlib(snapshot: dict[str, Any]) -> Any:
     if "MPLCONFIGDIR" not in os.environ:
         os.environ["MPLCONFIGDIR"] = tempfile.gettempdir()
 
+    import matplotlib
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     drones = snapshot.get("drones", {})

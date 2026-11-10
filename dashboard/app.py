@@ -102,28 +102,28 @@ with st.sidebar:
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         if st.session_state.running:
-            if st.button("⏸️ Pause", use_container_width=True):
+            if st.button("⏸️ Pause", width="stretch"):
                 st.session_state.running = False
                 service.pause()
                 st.rerun()
         else:
-            if st.button("▶️ Start", use_container_width=True):
+            if st.button("▶️ Start", width="stretch"):
                 st.session_state.running = True
                 service.start()
                 st.rerun()
 
     with col_c2:
-        if st.button("⏭️ Step +1s", use_container_width=True):
+        if st.button("⏭️ Step +1s", width="stretch"):
             service.step(1.0)
             st.rerun()
 
     col_c3, col_c4 = st.columns(2)
     with col_c3:
-        if st.button("⏩ Step +5s", use_container_width=True):
+        if st.button("⏩ Step +5s", width="stretch"):
             service.step(5.0)
             st.rerun()
     with col_c4:
-        if st.button("🔄 Reset", use_container_width=True):
+        if st.button("🔄 Reset", width="stretch"):
             st.session_state.service = SwarmService(initial_sim_time=1000.0)
             st.session_state.running = False
             st.rerun()
@@ -137,7 +137,7 @@ with st.sidebar:
 
     col_a1, col_a2 = st.columns(2)
     with col_a1:
-        if st.button("❌ Fail Node", use_container_width=True):
+        if st.button("❌ Fail Node", width="stretch"):
             success, msg = service.fail_drone(selected_drone)
             if success:
                 st.toast(msg, icon="⚠️")
@@ -146,7 +146,7 @@ with st.sidebar:
             st.rerun()
 
     with col_a2:
-        if st.button("🩹 Recover Node", use_container_width=True):
+        if st.button("🩹 Recover Node", width="stretch"):
             success, msg = service.recover_drone(selected_drone)
             if success:
                 st.toast(msg, icon="✅")
@@ -160,7 +160,7 @@ with st.sidebar:
         "Attack Type",
         ["Jamming (RF Degradation)", "DoS (High Latency/Loss)", "Spoofing (GPS Anomaly)"],
     )
-    if st.button("⚡ Inject Attack", use_container_width=True):
+    if st.button("⚡ Inject Attack", width="stretch"):
         kind_map = {
             "Jamming (RF Degradation)": "jamming",
             "DoS (High Latency/Loss)": "dos",
@@ -172,7 +172,7 @@ with st.sidebar:
         st.rerun()
 
     # Signed Clearance Action
-    if st.button("🔏 Grant Signed Clearance", use_container_width=True):
+    if st.button("🔏 Grant Signed Clearance", width="stretch"):
         try:
             res = service.grant_clearance(selected_drone)
             st.toast(f"Cryptographic clearance verified for {selected_drone}!", icon="🛡️")
@@ -186,7 +186,7 @@ with st.sidebar:
     st.subheader("🎯 Mission & Vision")
 
     # AI Threat Detection (Honest: not implemented yet)
-    if st.button("🤖 Run AI Threat Detector", use_container_width=True):
+    if st.button("🤖 Run AI Threat Detector", width="stretch"):
         try:
             service.run_detection()
         except NotImplementedError as exc:
@@ -194,7 +194,7 @@ with st.sidebar:
 
     # Vision Alert Trigger
     vision_src = st.selectbox("Vision Source", ["Scripted Test Data", "test.mp4 (Clip)"])
-    if st.button("👁️ Run Vision & Alert", use_container_width=True):
+    if st.button("👁️ Run Vision & Alert", width="stretch"):
         src_val = "scripted" if vision_src.startswith("Scripted") else "test.mp4"
         res = service.run_vision(source=src_val)
         if res.get("success"):
@@ -203,13 +203,13 @@ with st.sidebar:
             st.error(f"Vision failure: {res.get('error')}")
         st.rerun()
 
-    if st.button("🚨 Dispatch Alert Direct", use_container_width=True):
+    if st.button("🚨 Dispatch Alert Direct", width="stretch"):
         service.send_alert()
         st.toast("Direct emergency alert dispatched to GS!", icon="🚨")
         st.rerun()
 
     # Mobility Control (Disabled with explanation)
-    st.button("🗺️ Move Drones (Simulation)", disabled=True, use_container_width=True)
+    st.button("🗺️ Move Drones (Simulation)", disabled=True, width="stretch")
     st.caption("ℹ️ *Mobility simulator not implemented yet*")
 
 # ==============================================================================
@@ -317,7 +317,7 @@ with tab_drones:
             "Age (s)": d["last_seen_age"],
         })
     df_drones = pd.DataFrame(table_rows)
-    st.dataframe(df_drones, use_container_width=True, hide_index=True)
+    st.dataframe(df_drones, width="stretch", hide_index=True)
 
 # ------------------------------------------------------------------------------
 # TAB 3: THREAT & QUARANTINE PANEL
@@ -427,7 +427,7 @@ with tab_vision:
                     "Local North (m)": f"{p_loc.get('north_m', 0.0):.1f} m",
                     "Status": p_gps.get("location_status", "VALID"),
                 })
-            st.dataframe(pd.DataFrame(geo_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(geo_rows), width="stretch", hide_index=True)
 
         # Drone Pose & Reference Frame Metadata
         drone_pose = latest_alert.get("drone_pose")
@@ -453,7 +453,7 @@ with tab_vision:
                         st.image(
                             f"data:image/jpeg;base64,{thumb_b64}",
                             caption=f"Track #{item.get('track_id')} (Conf: {item.get('confidence', 0.0):.2f})",
-                            use_container_width=True,
+                            width="stretch",
                         )
 
 # ------------------------------------------------------------------------------
@@ -535,7 +535,7 @@ with tab_events:
                 "New State": e.get("new_state") or "-",
                 "Details": json.dumps(e.get("details", {})),
             })
-        st.dataframe(pd.DataFrame(evt_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(evt_rows), width="stretch", hide_index=True)
     else:
         st.info("No audit events recorded yet.")
 

@@ -162,3 +162,4 @@ Run the entire project test suite:
 .\venv\Scripts\python.exe -m pytest tests -q
 ```
 *(Result: 120 passed in ~5 seconds)*
+
