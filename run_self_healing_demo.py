@@ -24,6 +24,8 @@ from controller.models import (
     ThreatReport,
 )
 from controller.self_healing_controller import SelfHealingController
+from security.authentication import Identity
+from security.encryption import security_status
 from vision.emergency_alert import EmergencyAlert
 
 
@@ -175,6 +177,15 @@ def run_demo(step_delay: float = 0.5, interactive: bool = False) -> None:
 
     print(f"Registered {len(initial_drones)} swarm nodes (7 active aerial drones + Ground Station GS).")
     print(f"Transmission communication range: {config.max_comm_range_m} metres.")
+
+    sec_info = security_status()
+    print(f"\n{BOLD}Cryptographic Subsystem Status:{RESET}")
+    print(f"  Mode           : {CYAN}{sec_info['mode'].upper()}{RESET}")
+    print(f"  Signature Mech : {BOLD}{sec_info['sig_algorithm']}{RESET}")
+    print(f"  Key Exchange   : {BOLD}{sec_info['kem_algorithm']}{RESET}")
+    verdict_color = GREEN if sec_info["is_post_quantum"] else YELLOW
+    print(f"  Verdict        : {verdict_color}{sec_info['verdict']}{RESET}")
+    print(f"  Wire Cipher    : AES-256-GCM authenticated encryption (64-packet anti-replay window)")
     print()
     display_swarm_table(ctrl)
 
@@ -318,8 +329,15 @@ def run_demo(step_delay: float = 0.5, interactive: bool = False) -> None:
     print(f"  D4 Status: {format_status(st_d4.operational_status)} (Verification criteria satisfied!)")
     print(f"{GREEN}✔ Drone D4 successfully reinstated into active mesh routing.{RESET}")
 
-    # Check route restoration
+    # Check route restoration with hold-down timer
+    print(f"\nStep 4.3: Evaluating route restoration against hold-down stabilization window ({config.restore_hold_down_s}s)...")
     restored_route = ctrl.get_active_route(route_id)
+    if restored_route != initial_route:
+        print(f"  Hold-down Active: Detour route {restored_route} held to prevent route flapping.")
+        print(f"  Advancing simulation clock past hold-down timer (+{config.restore_hold_down_s}s)...")
+        ctrl.check_route_restorations(current_time=rec_time + config.restore_hold_down_s + 1.0)
+        restored_route = ctrl.get_active_route(route_id)
+
     assert restored_route is not None
     print(f"\n{BOLD}Automatic Route Optimization & Restoration:{RESET}")
     print(f"  Current Active Route: {CYAN}{BOLD}{' ──► '.join(restored_route)}{RESET}")
@@ -372,11 +390,32 @@ def run_demo(step_delay: float = 0.5, interactive: bool = False) -> None:
 
     pause()
 
-    # Operator grants security clearance
-    print(f"\nSwarm Security Officer reviews logs and performs security clearance validation.")
-    clearance_ref = "DEMO-OPERATOR-CLEARANCE-REF"
-    print(f"Executing: controller.grant_security_clearance('D6', clearance_token='{clearance_ref}')...")
-    ctrl.grant_security_clearance("D6", clearance_token=clearance_ref)
+    # Operator grants cryptographically signed security clearance
+    print(f"\nSwarm Security Officer prepares cryptographically signed clearance credentials...")
+    operator = Identity.generate("OP-CMD-1")
+    ctrl.security._pki.register(operator)
+
+    clearance_nonce = "DEMO-NONCE-" + hex(int(time.time()))[2:]
+    clearance_ts = threat_time + 1.5
+    clearance_exp = clearance_ts + 300.0
+    action = "CLEAR_COMPROMISED"
+    transcript = f"CLEARANCE:D6:{action}:{operator.peer_id}:{clearance_ts}:{clearance_exp}:{clearance_nonce}".encode("utf-8")
+    sig = operator.sign(transcript)
+    import base64
+    clearance_payload = {
+        "drone_id": "D6",
+        "action": action,
+        "operator_id": operator.peer_id,
+        "timestamp": clearance_ts,
+        "expires_at": clearance_exp,
+        "nonce": clearance_nonce,
+        "signature": base64.b64encode(sig).decode("ascii"),
+    }
+
+    print(f"Executing: controller.grant_signed_clearance(clearance_payload)...")
+    clearance_event = ctrl.grant_signed_clearance(clearance_payload, current_time=threat_time + 1.5)
+    print(f"  Security Clearance Signature: {GREEN}VERIFIED (Operator: {operator.peer_id}, Algo: {operator.algorithm}){RESET}")
+    print(f"  Event Emitted: {clearance_event.event_type.value}")
 
     # Now recovery proceeds
     print(f"\nResuming health verification for D6 following security clearance...")
@@ -416,6 +455,13 @@ def run_demo(step_delay: float = 0.5, interactive: bool = False) -> None:
     recent_events = ctrl.get_event_log(limit=8)
     for evt in recent_events:
         print(f"  • {evt.summary()}")
+
+    # Consolidated dashboard status
+    dash = ctrl.get_dashboard_status()
+    print(f"\n{BOLD}Consolidated Swarm Dashboard Status:{RESET}")
+    print(f"  Swarm Health      : {GREEN}{dash['swarm']['status_counts']['HEALTHY']}/{dash['swarm']['total_drones']} Nodes Operational{RESET}")
+    print(f"  Security Subsystem: {dash['security']['mode'].upper()} | {dash['security']['sig_algorithm']} | {dash['security']['kem_algorithm']}")
+    print(f"  Security Verdict  : {verdict_color}{dash['security']['verdict']}{RESET}")
 
     print(f"\n{GREEN}{BOLD}Demonstration completed successfully!{RESET}\n")
 

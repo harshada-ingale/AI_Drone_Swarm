@@ -58,6 +58,9 @@ class SelfHealingController:
         # Event audit log: list of SelfHealingEvent
         self._events: list[SelfHealingEvent] = []
 
+        # Replay prevention for signed security clearances
+        self._seen_clearance_nonces: set[str] = set()
+
     # --------------------------------------------------------------------------
     # DRONE REGISTRATION & STATE ACCESS
     # --------------------------------------------------------------------------
@@ -197,7 +200,7 @@ class SelfHealingController:
             if success:
                 # Drone is fully restored to HEALTHY!
                 if self.config.auto_restore_routes:
-                    self.check_route_restorations()
+                    self.check_route_restorations(current_time=now)
 
         elif current_status in (DroneHealthStatus.HEALTHY, DroneHealthStatus.DEGRADED):
             if result.is_failed:
@@ -500,8 +503,18 @@ class SelfHealingController:
             orig_path = info["original_path"]
 
             if curr_path != orig_path:
-                # Check if all nodes in original path are now healthy
-                is_safe = all(node not in excluded for node in orig_path)
+                # Check if all nodes in original path are now healthy and hold-down timer has passed
+                is_safe = True
+                for node in orig_path:
+                    if node in excluded:
+                        is_safe = False
+                        break
+                    st = self._drones.get(node)
+                    if st and st.recovery_timestamp is not None:
+                        if (now - st.recovery_timestamp) < self.config.restore_hold_down_s:
+                            is_safe = False
+                            break
+
                 if is_safe:
                     # Verify route is valid and computes cost
                     source = info["source"]
@@ -562,7 +575,7 @@ class SelfHealingController:
             )
             self._record_event(evt)
             if self.config.auto_restore_routes:
-                self.check_route_restorations()
+                self.check_route_restorations(current_time=now)
             return True, f"Drone '{drone_id}' forcibly recovered."
 
         # Progressive verification recovery
@@ -577,10 +590,101 @@ class SelfHealingController:
             if evt:
                 self._record_event(evt)
             if success and self.config.auto_restore_routes:
-                self.check_route_restorations()
+                self.check_route_restorations(current_time=now)
             return success, msg
 
         return False, f"Drone '{drone_id}' is in state {state.operational_status.value}, not eligible for recovery."
+
+    def grant_signed_clearance(
+        self,
+        clearance: dict[str, Any],
+        current_time: float | None = None,
+    ) -> SelfHealingEvent:
+        """Grants cryptographically signed security clearance to an isolated/compromised drone.
+
+        Verifies operator signature, non-replayed nonce, expiration timestamp,
+        and that drone is currently isolated or compromised. Emits SECURITY_CLEARANCE_GRANTED.
+        Never logs signatures, secret keys, or tokens.
+        """
+        import base64
+        from security.pqc_security import AuthenticationError, ReplayError, SecurityError
+
+        now = time.time() if current_time is None else current_time
+
+        if not isinstance(clearance, dict):
+            raise TypeError("clearance must be a dictionary.")
+
+        required_keys = {"drone_id", "action", "operator_id", "timestamp", "expires_at", "nonce", "signature"}
+        missing = required_keys - set(clearance.keys())
+        if missing:
+            raise ValueError(f"Clearance missing mandatory fields: {missing}")
+
+        drone_id = str(clearance["drone_id"])
+        action = str(clearance["action"])
+        operator_id = str(clearance["operator_id"])
+        ts = float(clearance["timestamp"])
+        expires_at = float(clearance["expires_at"])
+        nonce = str(clearance["nonce"])
+        sig_str = str(clearance["signature"])
+
+        if drone_id not in self._drones:
+            raise KeyError(f"Drone '{drone_id}' not found.")
+
+        state = self._drones[drone_id]
+        if not (state.is_compromised or state.operational_status in (DroneHealthStatus.ISOLATED, DroneHealthStatus.FAILED)):
+            raise ValueError(f"Drone '{drone_id}' is not compromised or isolated.")
+
+        if action != "CLEAR_COMPROMISED":
+            raise ValueError(f"Invalid clearance action: expected 'CLEAR_COMPROMISED', got '{action}'.")
+
+        if now > expires_at:
+            raise ValueError(f"Clearance expired at {expires_at} (current time {now}).")
+
+        if nonce in self._seen_clearance_nonces:
+            raise ReplayError("Clearance nonce has already been used.")
+
+        # Canonical transcript
+        transcript = f"CLEARANCE:{drone_id}:{action}:{operator_id}:{ts}:{expires_at}:{nonce}".encode("utf-8")
+
+        operator_identity = None
+        if hasattr(self.security, "_pki") and self.security._pki is not None:
+            operator_identity = self.security._pki.get(operator_id)
+
+        if operator_identity is None:
+            raise AuthenticationError(f"Unknown or unverified operator identity '{operator_id}'.")
+
+        try:
+            sig_bytes = base64.b64decode(sig_str)
+        except Exception as err:
+            raise AuthenticationError("Malformed clearance signature base64 encoding.") from err
+
+        verified = operator_identity.verify(transcript, sig_bytes)
+        if not verified:
+            raise AuthenticationError(f"Invalid clearance signature for operator '{operator_id}'.")
+
+        # Mark nonce as consumed
+        self._seen_clearance_nonces.add(nonce)
+
+        # Clear compromised status
+        state.is_compromised = False
+        state.security_cleared = True
+        state.threat_level = 0.0
+
+        evt = SelfHealingEvent(
+            event_type=EventType.SECURITY_CLEARANCE_GRANTED,
+            drone_id=drone_id,
+            timestamp=now,
+            previous_state=state.operational_status.value,
+            new_state=state.operational_status.value,
+            details={
+                "operator_id": operator_id,
+                "nonce_prefix": nonce[:8] if len(nonce) >= 8 else nonce,
+                "action": action,
+                "message": "Cryptographic security clearance successfully verified.",
+            },
+        )
+        self._record_event(evt)
+        return evt
 
     def grant_security_clearance(
         self,
@@ -589,6 +693,12 @@ class SelfHealingController:
         current_time: float | None = None,
     ) -> None:
         """Grants security clearance allowing an isolated compromised drone to enter recovery."""
+        import warnings
+        warnings.warn(
+            "grant_security_clearance() is deprecated; use grant_signed_clearance() with cryptographic signatures.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if drone_id not in self._drones:
             raise KeyError(f"Drone '{drone_id}' not found.")
         state = self._drones[drone_id]
@@ -645,7 +755,7 @@ class SelfHealingController:
         if route is None:
             raise NoRouteFoundError(f"Cannot dispatch alert {alert.alert_id}: no route to {dest}.")
 
-        return self.vision_adapter.transmit_alert(alert, route)
+        return self.vision_adapter.transmit_alert(alert, route, controller=self)
 
     # --------------------------------------------------------------------------
     # EVENT AUDIT LOG
@@ -698,5 +808,35 @@ class SelfHealingController:
                 if s.operational_status == DroneHealthStatus.ISOLATED
             ],
             "total_events": len(self._events),
+        }
+
+    def get_dashboard_status(self, km: Any = None) -> dict[str, Any]:
+        """Provides consolidated dashboard status overview including security and routes."""
+        swarm_stat = self.get_swarm_status()
+        try:
+            from security.encryption import security_status
+            sec_stat = security_status(km)
+        except Exception:
+            sec_stat = {
+                "is_post_quantum": False,
+                "verdict": "CLASSICAL FALLBACK (not post-quantum)",
+                "mode": "classical",
+                "sig_algorithm": "Ed25519",
+                "kem_algorithm": "X25519",
+                "active_sessions": 0,
+            }
+
+        return {
+            "swarm": swarm_stat,
+            "security": sec_stat,
+            "active_routes": {
+                r_id: {
+                    "path": list(r_info["path"]),
+                    "original_path": list(r_info["original_path"]),
+                    "is_rerouted": r_info["path"] != r_info["original_path"],
+                }
+                for r_id, r_info in self._active_routes.items()
+            },
+            "recent_events": [e.summary() for e in self.get_event_log(limit=10)],
         }
 

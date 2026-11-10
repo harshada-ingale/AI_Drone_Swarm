@@ -43,6 +43,8 @@ class EventType(str, Enum):
     RECOVERY_STARTED = "RECOVERY_STARTED"
     DRONE_RECOVERED = "DRONE_RECOVERED"
     SECURITY_ALERT = "SECURITY_ALERT"
+    SECURITY_CLEARANCE_GRANTED = "SECURITY_CLEARANCE_GRANTED"
+    SECURITY_DEGRADED = "SECURITY_DEGRADED"
     ROUTE_RESTORED = "ROUTE_RESTORED"
 
 
@@ -68,6 +70,7 @@ class DroneState:
     consecutive_healthy: int = 0
     previous_status: DroneHealthStatus | None = None
     isolation_timestamp: float | None = None
+    recovery_timestamp: float | None = None
 
     def validate(self) -> None:
         """Validates metric ranges, raising ValueError if any value is out of bounds."""

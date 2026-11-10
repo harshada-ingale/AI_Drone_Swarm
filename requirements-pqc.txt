@@ -1,0 +1,5 @@
+# Optional post-quantum cryptography dependencies.
+# Requires the liboqs C library to be installed on the host system first.
+# On Windows, installation via WSL2 (Ubuntu) or Linux is recommended.
+liboqs-python>=0.10.0
+

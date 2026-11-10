@@ -117,8 +117,9 @@ class SecurityAdapter:
         """Encrypts or securely seals payload for transmission across relay drones."""
         if self._has_pqc:
             messenger = self.get_or_create_messenger(sender_id)
-            # Ensure recipient is known
-            self.get_or_create_messenger(recipient_id)
+            recipient_messenger = self.get_or_create_messenger(recipient_id)
+            if not messenger.km.has_active_session(recipient_id):
+                messenger.km.establish_session_with_peer(recipient_messenger.km)
             return messenger.send(recipient_id, payload)
 
         # Standalone cryptographic envelope fallback (AES/HMAC-SHA256 simulation)
@@ -162,58 +163,118 @@ class SecurityAdapter:
 class VisionAlertAdapter:
     """Coordinates dispatching emergency alerts over self-healed routes."""
 
-    def __init__(self, security_adapter: SecurityAdapter | None = None) -> None:
+    def __init__(
+        self,
+        security_adapter: SecurityAdapter | None = None,
+        controller: Any = None,
+    ) -> None:
         self.security = security_adapter or SecurityAdapter()
+        self.controller = controller
 
     def transmit_alert(
         self,
         alert: EmergencyAlert,
         route: list[str],
+        controller: Any = None,
     ) -> dict[str, Any]:
         """Transmits an EmergencyAlert along a verified path to Ground Station.
+
+        Guarantees that raw ciphertext is forwarded hop-by-hop without relay decryption.
+        If a next hop fails or is isolated mid-transit, queries the controller for a
+        rerouted path and forwards the identical ciphertext without re-encrypting.
 
         Args:
             alert: The EmergencyAlert object.
             route: Ordered list of nodes, e.g. ["D7", "D4", "D3", "GS"].
+            controller: Optional controller reference for mid-transit reroute resolution.
 
         Returns:
-            Transmission report with delivery status, hops, and decrypted confirmation.
+            Transmission report with delivered status, hops, reroutes, and decrypted payload.
         """
         if not route or len(route) < 2:
             return {
+                "delivered": False,
                 "success": False,
                 "error": "Invalid route path: must contain at least source and destination.",
+                "hops": [],
                 "hops_traversed": [],
+                "reroutes": 0,
+                "delivered_payload": None,
             }
 
+        ctrl = controller or self.controller
         source = route[0]
         destination = route[-1]
 
-        # Origin produces payload and securely seals it
+        # Origin produces payload and securely seals it once
         payload = alert.to_payload()
         sealed_bytes = self.security.seal_payload(source, destination, payload)
 
         hops_traversed: list[str] = [source]
-
-        # Relay along path (relay hops forward without decrypting)
         current_data = sealed_bytes
-        for i in range(1, len(route) - 1):
-            relay_node = route[i]
-            next_node = route[i + 1]
-            current_data = self.security.forward_relay_hop(current_data, relay_node, next_node)
-            hops_traversed.append(relay_node)
+        active_route = list(route)
+        current_idx = 0
+        reroutes_count = 0
 
-        # Final destination unseals and verifies payload
-        hops_traversed.append(destination)
-        delivered_payload = self.security.unseal_payload(destination, current_data)
+        while current_idx < len(active_route) - 1:
+            curr_node = active_route[current_idx]
+            next_node = active_route[current_idx + 1]
+
+            # Check if next hop is isolated or failed mid-transit
+            is_next_failed = False
+            if ctrl is not None:
+                excluded = ctrl.get_isolated_and_failed_drones()
+                if next_node in excluded:
+                    is_next_failed = True
+
+            if is_next_failed:
+                try:
+                    # Request dynamic alternative path bypassing the failed node
+                    new_subpath = ctrl.get_route(curr_node, destination, raise_on_failure=True)
+                    active_route = active_route[: current_idx + 1] + new_subpath[1:]
+                    next_node = active_route[current_idx + 1]
+                    reroutes_count += 1
+                except Exception as err:
+                    return {
+                        "delivered": False,
+                        "success": False,
+                        "error": f"Mid-transit rerouting failed at '{curr_node}': {err}",
+                        "hops": hops_traversed,
+                        "hops_traversed": hops_traversed,
+                        "reroutes": reroutes_count,
+                        "delivered_payload": None,
+                    }
+
+            # Forward identical ciphertext without decrypting at relay hop
+            current_data = self.security.forward_relay_hop(current_data, curr_node, next_node)
+            current_idx += 1
+            hops_traversed.append(next_node)
+
+        # Final destination unseals and authenticates payload
+        try:
+            delivered_payload = self.security.unseal_payload(destination, current_data)
+        except Exception as err:
+            return {
+                "delivered": False,
+                "success": False,
+                "error": f"Failed to unseal payload at destination '{destination}': {err}",
+                "hops": hops_traversed,
+                "hops_traversed": hops_traversed,
+                "reroutes": reroutes_count,
+                "delivered_payload": None,
+            }
 
         return {
+            "delivered": True,
             "success": True,
-            "alert_id": delivered_payload.get("alert_id"),
+            "alert_id": delivered_payload.get("alert_id") if isinstance(delivered_payload, dict) else None,
             "source": source,
             "destination": destination,
-            "route": route,
+            "route": active_route,
+            "hops": hops_traversed,
             "hops_traversed": hops_traversed,
+            "reroutes": reroutes_count,
+            "error": None,
             "delivered_payload": delivered_payload,
         }
 

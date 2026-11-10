@@ -45,6 +45,10 @@ class SelfHealingConfig:
     max_comm_range_m: float = 500.0
     ground_station_id: str = "GS"
     auto_restore_routes: bool = True
+    restore_hold_down_s: float = 5.0
+
+    # Cryptographic security policy
+    require_pq: bool = False
 
     # Drone ID validation pattern (default matches D1-D20, GS, or custom D<N>)
     drone_id_pattern: str = r"^(D([1-9]|1[0-9]|20)|GS)$"
